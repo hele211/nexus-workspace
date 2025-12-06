@@ -52,7 +52,7 @@ export const AIAssistantChat = () => {
   };
 
   return (
-    <Card className="flex flex-col h-[400px]">
+    <Card className="flex flex-col h-[280px]">
       <CardHeader className="flex flex-row items-center gap-2 pb-3">
         <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10">
           <Bot className="h-4 w-4 text-primary" />

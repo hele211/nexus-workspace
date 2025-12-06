@@ -9,7 +9,7 @@ import Auth from "./pages/Auth";
 import Experiments from "./pages/Experiments";
 import Protocols from "./pages/Protocols";
 import Orders from "./pages/Orders";
-import Messages from "./pages/Messages";
+import Assistant from "./pages/Assistant";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -27,7 +27,7 @@ const App = () => (
             <Route path="/experiments" element={<Experiments />} />
             <Route path="/protocols" element={<Protocols />} />
             <Route path="/orders" element={<Orders />} />
-            <Route path="/messages" element={<Messages />} />
+            <Route path="/assistant" element={<Assistant />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>
