@@ -1,4 +1,4 @@
-import { FlaskConical, BookOpen, ShoppingCart, MessageSquare, Home } from 'lucide-react';
+import { FlaskConical, BookOpen, ShoppingCart, Bot, Home } from 'lucide-react';
 import { NavLink } from '@/components/NavLink';
 import {
   Sidebar as ShadcnSidebar,
@@ -17,7 +17,7 @@ const navItems = [
   { title: 'Experiments', url: '/experiments', icon: FlaskConical },
   { title: 'Protocols', url: '/protocols', icon: BookOpen },
   { title: 'Orders', url: '/orders', icon: ShoppingCart },
-  { title: 'Messages', url: '/messages', icon: MessageSquare },
+  { title: 'Assistant', url: '/assistant', icon: Bot },
 ];
 
 export const Sidebar = () => {
