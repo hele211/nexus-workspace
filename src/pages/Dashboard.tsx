@@ -3,7 +3,7 @@ import { FlaskConical, BookOpen, ShoppingCart } from 'lucide-react';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { DashboardCard } from '@/components/dashboard/DashboardCard';
 import { QuickActions } from '@/components/dashboard/QuickActions';
-import { MessageBoard } from '@/components/dashboard/MessageBoard';
+import { AIAssistantChat } from '@/components/dashboard/AIAssistantChat';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 
@@ -68,7 +68,7 @@ const Dashboard = () => {
           <QuickActions />
         </div>
 
-        <MessageBoard />
+        <AIAssistantChat />
       </div>
     </DashboardLayout>
   );
