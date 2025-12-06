@@ -124,48 +124,39 @@ const Assistant = () => {
           <p className="text-muted-foreground mt-1">AI-powered research assistant</p>
         </div>
 
-        <Card className="flex flex-col h-[calc(100vh-220px)]">
-          <CardHeader className="flex flex-row items-center justify-between pb-3">
-            <div className="flex items-center gap-2">
-              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10">
-                <Bot className="h-4 w-4 text-primary" />
+        <Card className="flex flex-col h-[calc(100vh-220px)] border-border">
+          <CardHeader className="flex flex-row items-center justify-between pb-3 border-b border-border">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted">
+                <Bot className="h-5 w-5 text-foreground" />
               </div>
               <div>
-                <CardTitle className="text-base">12Record</CardTitle>
-                <p className="text-xs text-muted-foreground">Powered by SpoonOS</p>
+                <CardTitle className="text-base font-semibold">12Record</CardTitle>
+                <p className="text-xs text-primary">Powered by SpoonOS</p>
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <Toggle
-                pressed={autoSpeak}
-                onPressedChange={setAutoSpeak}
-                aria-label="Toggle auto-speak"
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => setAutoSpeak(!autoSpeak)}
                 disabled={!voiceMode}
-                className="data-[state=on]:bg-primary/10"
+                className="h-9 w-9 rounded-lg"
               >
                 {autoSpeak ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
-              </Toggle>
+              </Button>
               <Button
                 variant={voiceMode ? "default" : "outline"}
                 size="sm"
                 onClick={toggleVoiceMode}
-                className={voiceMode && isListening ? "animate-pulse" : ""}
+                className={`rounded-lg ${voiceMode && isListening ? "animate-pulse" : ""}`}
               >
-                {voiceMode ? (
-                  <>
-                    <MicOff className="h-4 w-4 mr-1" />
-                    Exit Voice
-                  </>
-                ) : (
-                  <>
-                    <Mic className="h-4 w-4 mr-1" />
-                    Voice Mode
-                  </>
-                )}
+                <Mic className="h-4 w-4 mr-2" />
+                Voice Mode
               </Button>
             </div>
           </CardHeader>
-          <CardContent className="flex flex-col flex-1 p-4 pt-0">
+          <CardContent className="flex flex-col flex-1 p-6 pt-4">
             <ScrollArea className="flex-1 pr-4">
               <div className="space-y-4">
                 {messages.map((msg) => (
@@ -174,10 +165,10 @@ const Assistant = () => {
                     className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
                   >
                     <div
-                      className={`max-w-[80%] rounded-lg px-3 py-2 text-sm ${
+                      className={`max-w-[80%] rounded-xl px-4 py-3 text-sm ${
                         msg.role === 'user'
                           ? 'bg-primary text-primary-foreground'
-                          : 'bg-muted'
+                          : 'bg-muted text-foreground'
                       }`}
                     >
                       {msg.content}
@@ -186,7 +177,7 @@ const Assistant = () => {
                 ))}
                 {isLoading && (
                   <div className="flex justify-start">
-                    <div className="bg-muted rounded-lg px-3 py-2 text-sm">
+                    <div className="bg-muted rounded-xl px-4 py-3 text-sm">
                       <span className="animate-pulse">Thinking...</span>
                     </div>
                   </div>
@@ -210,16 +201,25 @@ const Assistant = () => {
                 </p>
               </div>
             ) : (
-              <div className="flex gap-2 mt-4">
-                <Input
-                  placeholder="Ask 12Record..."
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && !isLoading && handleSend()}
-                  disabled={isLoading}
-                />
-                <Button onClick={handleSend} disabled={isLoading || !input.trim()}>
-                  <Send className="h-4 w-4" />
+              <div className="flex gap-3 mt-4">
+                <div className="flex-1 rounded-xl border border-border bg-background px-4 py-3">
+                  <input
+                    type="text"
+                    placeholder="Ask 12Record..."
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && !isLoading && handleSend()}
+                    disabled={isLoading}
+                    className="w-full bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
+                  />
+                </div>
+                <Button 
+                  onClick={handleSend} 
+                  disabled={isLoading || !input.trim()}
+                  size="icon"
+                  className="h-12 w-12 rounded-xl bg-muted hover:bg-muted/80 text-muted-foreground"
+                >
+                  <Send className="h-5 w-5" />
                 </Button>
               </div>
             )}
