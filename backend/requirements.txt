@@ -1,0 +1,40 @@
+# SpoonOS Framework
+spoon-ai-sdk
+spoon-toolkits
+
+# FastAPI
+fastapi
+uvicorn[standard]
+websockets
+
+# Database
+supabase
+
+# LLM Providers
+openai
+google-genai
+
+# Voice Integration
+elevenlabs
+
+# Literature Search
+biopython
+requests
+feedparser
+
+# Memory (optional)
+mem0ai
+
+# Utilities
+python-dotenv
+pydantic
+pydantic-settings
+
+# Neo X Blockchain (EVM-compatible)
+web3>=6.15.0
+eth-account>=0.11.0
+
+# Testing
+pytest
+pytest-asyncio
+httpx

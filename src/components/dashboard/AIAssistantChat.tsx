@@ -1,17 +1,45 @@
 import { useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { Send, Bot, Search, Mic, Paperclip, Globe, Copy } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
+
+// Backend API URL
+const API_URL = 'http://localhost:8000';
 
 interface Message {
   id: string;
   content: string;
   role: 'user' | 'assistant';
   timestamp: Date;
+  agentUsed?: string;
+}
+
+interface ChatRequest {
+  message: string;
+  page_context: {
+    route: string;
+    workspace_id: string;
+    user_id: string;
+    experiment_ids: string[];
+    protocol_ids: string[];
+    filters: Record<string, unknown>;
+    metadata: Record<string, unknown>;
+  };
+  stream: boolean;
+}
+
+interface ChatResponse {
+  response: string;
+  agent_used: string;
+  intent: string | null;
+  metadata: Record<string, unknown>;
+  timestamp: string;
 }
 
 export const AIAssistantChat = () => {
+  const location = useLocation();
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
@@ -37,16 +65,58 @@ export const AIAssistantChat = () => {
     setInput('');
     setIsLoading(true);
 
-    setTimeout(() => {
+    try {
+      // Build request payload
+      const chatRequest: ChatRequest = {
+        message: input,
+        page_context: {
+          route: location.pathname,
+          workspace_id: 'ws_default', // TODO: Get from auth context
+          user_id: 'user_default',    // TODO: Get from auth context
+          experiment_ids: [],
+          protocol_ids: [],
+          filters: {},
+          metadata: {},
+        },
+        stream: false,
+      };
+
+      // Call backend API
+      const response = await fetch(`${API_URL}/api/chat`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(chatRequest),
+      });
+
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status}`);
+      }
+
+      const data: ChatResponse = await response.json();
+
       const assistantMessage: Message = {
         id: (Date.now() + 1).toString(),
-        content: "I'm currently in demo mode. Once connected to SpoonOS, I'll be able to help you with experiments, protocols, and research queries.",
+        content: data.response,
+        role: 'assistant',
+        timestamp: new Date(data.timestamp),
+        agentUsed: data.agent_used,
+      };
+      setMessages((prev) => [...prev, assistantMessage]);
+
+    } catch (error) {
+      console.error('Chat API error:', error);
+      const errorMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        content: `Sorry, I couldn't connect to the backend. Make sure the server is running at ${API_URL}. Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
         role: 'assistant',
         timestamp: new Date(),
       };
-      setMessages((prev) => [...prev, assistantMessage]);
+      setMessages((prev) => [...prev, errorMessage]);
+    } finally {
       setIsLoading(false);
-    }, 1000);
+    }
   };
 
   return (

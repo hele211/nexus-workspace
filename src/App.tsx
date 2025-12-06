@@ -10,6 +10,7 @@ import Experiments from "./pages/Experiments";
 import Protocols from "./pages/Protocols";
 import Orders from "./pages/Orders";
 import Assistant from "./pages/Assistant";
+import TestChat from "./pages/TestChat";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -28,6 +29,7 @@ const App = () => (
             <Route path="/protocols" element={<Protocols />} />
             <Route path="/orders" element={<Orders />} />
             <Route path="/assistant" element={<Assistant />} />
+            <Route path="/test-chat" element={<TestChat />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>
