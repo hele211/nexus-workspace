@@ -1,8 +1,7 @@
 import { useState } from 'react';
-import { Send, Bot } from 'lucide-react';
+import { Send, Bot, Search, Mic, Paperclip, Globe, Copy } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 
 interface Message {
@@ -38,7 +37,6 @@ export const AIAssistantChat = () => {
     setInput('');
     setIsLoading(true);
 
-    // Placeholder response - will be replaced with SpoonOS integration
     setTimeout(() => {
       const assistantMessage: Message = {
         id: (Date.now() + 1).toString(),
@@ -91,17 +89,50 @@ export const AIAssistantChat = () => {
           </div>
         </ScrollArea>
 
-        <div className="flex gap-2 mt-4">
-          <Input
-            placeholder="Ask 12Record..."
+        <div className="mt-4 rounded-xl border border-border bg-background shadow-sm p-3">
+          <input
+            type="text"
+            placeholder="Ask anything. Type @ for mentions and / for shortcuts."
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && !isLoading && handleSend()}
             disabled={isLoading}
+            className="w-full bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none mb-3"
           />
-          <Button onClick={handleSend} disabled={isLoading || !input.trim()}>
-            <Send className="h-4 w-4" />
-          </Button>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 rounded-lg bg-primary/10 text-primary hover:bg-primary/20"
+              >
+                <Search className="h-4 w-4" />
+              </Button>
+              <div className="h-4 w-px bg-border mx-1" />
+              <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground">
+                <Globe className="h-4 w-4" />
+              </Button>
+            </div>
+            <div className="flex items-center gap-1">
+              <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground">
+                <Copy className="h-4 w-4" />
+              </Button>
+              <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground">
+                <Paperclip className="h-4 w-4" />
+              </Button>
+              <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground">
+                <Mic className="h-4 w-4" />
+              </Button>
+              <Button
+                onClick={handleSend}
+                disabled={isLoading || !input.trim()}
+                size="icon"
+                className="h-8 w-8 rounded-lg"
+              >
+                <Send className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
         </div>
       </CardContent>
     </Card>
