@@ -28,6 +28,8 @@ interface ChatRequest {
     filters: Record<string, unknown>;
     metadata: Record<string, unknown>;
   };
+  conversation_id: string;
+  history: Array<{ role: string; content: string }>;
   stream: boolean;
 }
 
@@ -51,6 +53,7 @@ export const AIAssistantChat = () => {
   ]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [conversationId] = useState(() => `conv_${Date.now()}`);
   const inputRef = useRef<HTMLInputElement>(null);
   const lastAgentRef = useRef<string | undefined>(undefined);
 
@@ -86,6 +89,11 @@ export const AIAssistantChat = () => {
     setIsLoading(true);
 
     try {
+      // Build history from messages for context
+      const history = messages
+        .filter(m => m.id !== '1') // Skip initial greeting
+        .map(m => ({ role: m.role, content: m.content }));
+
       // Build request payload
       const chatRequest: ChatRequest = {
         message: input,
@@ -98,6 +106,8 @@ export const AIAssistantChat = () => {
           filters: {},
           metadata: {},
         },
+        conversation_id: conversationId,
+        history: history,
         stream: false,
       };
 
