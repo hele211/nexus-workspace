@@ -3,9 +3,7 @@ import { Send, Bot, Mic, MicOff, Volume2, VolumeX, Search, Globe, Copy, Papercli
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Toggle } from '@/components/ui/toggle';
 import { useVoice } from '@/hooks/useVoice';
 import { useToast } from '@/hooks/use-toast';
 
@@ -31,6 +29,32 @@ const Assistant = () => {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const pendingResponseRef = useRef<string | null>(null);
+
+  const handleSpeakEnd = useCallback(() => {
+    // Re-enable listening after speaking in voice mode
+  }, []);
+
+  const { 
+    isListening, 
+    isSpeaking, 
+    isAvailable,
+    isSTTSupported,
+    isEnabled,
+    toggleVoice,
+    speak, 
+    stopSpeaking,
+    listen
+  } = useVoice({
+    enabled: voiceMode,
+    onSpeakEnd: handleSpeakEnd,
+    onError: (error) => {
+      toast({
+        title: "Voice error",
+        description: error.message,
+        variant: "destructive",
+      });
+    }
+  });
 
   const handleSendMessage = useCallback((text: string) => {
     if (!text.trim()) return;
@@ -61,39 +85,16 @@ const Assistant = () => {
     }, 1000);
   }, []);
 
-  const handleTranscript = useCallback((text: string) => {
-    handleSendMessage(text);
-  }, [handleSendMessage]);
-
-  const handleSpeakEnd = useCallback(() => {
-    if (voiceMode) {
-      startListening();
-    }
-  }, []);
-
-  const { 
-    isListening, 
-    isSpeaking, 
-    isSupported, 
-    startListening, 
-    stopListening, 
-    speak, 
-    stopSpeaking 
-  } = useVoice({
-    onTranscript: handleTranscript,
-    onSpeakEnd: handleSpeakEnd,
-  });
-
   // Speak assistant responses when voice mode is on
   useEffect(() => {
-    if (voiceMode && autoSpeak && pendingResponseRef.current && !isLoading) {
+    if (voiceMode && autoSpeak && pendingResponseRef.current && !isLoading && isEnabled) {
       speak(pendingResponseRef.current);
       pendingResponseRef.current = null;
     }
-  }, [voiceMode, autoSpeak, isLoading, speak]);
+  }, [voiceMode, autoSpeak, isLoading, speak, isEnabled]);
 
-  const toggleVoiceMode = () => {
-    if (!isSupported) {
+  const toggleVoiceMode = async () => {
+    if (!isSTTSupported) {
       toast({
         title: "Voice not supported",
         description: "Your browser doesn't support speech recognition.",
@@ -103,12 +104,22 @@ const Assistant = () => {
     }
     
     if (voiceMode) {
-      stopListening();
       stopSpeaking();
       setVoiceMode(false);
     } else {
       setVoiceMode(true);
-      startListening();
+      toggleVoice(); // Enable voice in the hook
+    }
+  };
+
+  const handleListen = async () => {
+    try {
+      const transcript = await listen();
+      if (transcript) {
+        handleSendMessage(transcript);
+      }
+    } catch (error) {
+      console.error('Listen error:', error);
     }
   };
 
@@ -191,7 +202,7 @@ const Assistant = () => {
                   size="lg"
                   variant={isListening ? "default" : "outline"}
                   className={`rounded-full h-16 w-16 ${isListening ? "animate-pulse bg-destructive hover:bg-destructive/90" : ""}`}
-                  onClick={isListening ? stopListening : startListening}
+                  onClick={handleListen}
                   disabled={isSpeaking}
                 >
                   {isListening ? <MicOff className="h-6 w-6" /> : <Mic className="h-6 w-6" />}
