@@ -22,6 +22,9 @@ biopython
 requests
 feedparser
 
+# Reagent Discovery (Tavily Search)
+tavily-python
+
 # Memory (optional)
 mem0ai
 

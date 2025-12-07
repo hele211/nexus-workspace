@@ -325,12 +325,17 @@ class NeoBlockchainService:
             
             # Decode data from hex
             raw_data = tx.get("input", "0x")
+            # Convert HexBytes to string if needed
+            if hasattr(raw_data, 'hex'):
+                raw_data = raw_data.hex()
+            if not raw_data.startswith("0x"):
+                raw_data = "0x" + raw_data
             decoded_data = None
             
             if raw_data and raw_data != "0x":
                 try:
                     # Remove 0x prefix and decode
-                    data_bytes = bytes.fromhex(raw_data[2:])
+                    data_bytes = bytes.fromhex(raw_data[2:] if raw_data.startswith("0x") else raw_data)
                     data_str = data_bytes.decode("utf-8")
                     decoded_data = json.loads(data_str)
                 except (ValueError, json.JSONDecodeError):

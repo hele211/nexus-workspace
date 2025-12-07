@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
-import { Send, Bot, Search, Mic, Paperclip, Globe, Copy } from 'lucide-react';
+import { Send, Bot, Search, Mic, MicOff, Paperclip, Globe, Copy, Volume2, VolumeX, Square } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { useVoice } from '@/hooks/useVoice';
 
 // Backend API URL
 const API_URL = 'http://localhost:8000';
@@ -50,6 +51,25 @@ export const AIAssistantChat = () => {
   ]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const lastAgentRef = useRef<string | undefined>(undefined);
+
+  // Voice hook
+  const {
+    isAvailable: isVoiceAvailable,
+    isEnabled: isVoiceEnabled,
+    toggleVoice,
+    isSpeaking,
+    isListening,
+    speak,
+    stopSpeaking,
+    listen,
+    isSTTSupported,
+  } = useVoice({
+    onError: (error) => {
+      console.error('[AIAssistantChat] Voice error:', error.message);
+    },
+  });
 
   const handleSend = async () => {
     if (!input.trim()) return;
@@ -104,6 +124,14 @@ export const AIAssistantChat = () => {
         agentUsed: data.agent_used,
       };
       setMessages((prev) => [...prev, assistantMessage]);
+      
+      // Store agent for TTS voice selection
+      lastAgentRef.current = data.agent_used;
+      
+      // Speak response if voice is enabled
+      if (isVoiceEnabled && data.response) {
+        speak(data.response, data.agent_used);
+      }
 
     } catch (error) {
       console.error('Chat API error:', error);
@@ -119,15 +147,65 @@ export const AIAssistantChat = () => {
     }
   };
 
+  // Handle mic button click - start listening
+  const handleMicClick = async () => {
+    if (isListening) return; // Already listening
+    
+    try {
+      const transcript = await listen();
+      if (transcript) {
+        setInput(transcript);
+        // Focus the input so user can edit/confirm
+        inputRef.current?.focus();
+      }
+    } catch (error) {
+      // Error already logged in useVoice hook
+    }
+  };
+
   return (
     <Card className="flex flex-col h-[280px]">
-      <CardHeader className="flex flex-row items-center gap-2 pb-3">
-        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10">
-          <Bot className="h-4 w-4 text-primary" />
+      <CardHeader className="flex flex-row items-center justify-between pb-3">
+        <div className="flex items-center gap-2">
+          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10">
+            <Bot className="h-4 w-4 text-primary" />
+          </div>
+          <div>
+            <CardTitle className="text-base">12Record Assistant</CardTitle>
+            <p className="text-xs text-muted-foreground">
+              {isSpeaking ? (
+                <span className="text-primary animate-pulse">Speaking...</span>
+              ) : (
+                'Powered by SpoonOS'
+              )}
+            </p>
+          </div>
         </div>
-        <div>
-          <CardTitle className="text-base">12Record Assistant</CardTitle>
-          <p className="text-xs text-muted-foreground">Powered by SpoonOS</p>
+        
+        {/* Voice toggle and stop button */}
+        <div className="flex items-center gap-1">
+          {isSpeaking && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 text-destructive hover:text-destructive hover:bg-destructive/10"
+              onClick={stopSpeaking}
+              title="Stop speaking"
+            >
+              <Square className="h-3 w-3 fill-current" />
+            </Button>
+          )}
+          {isVoiceAvailable && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className={`h-7 w-7 ${isVoiceEnabled ? 'text-primary' : 'text-muted-foreground'}`}
+              onClick={toggleVoice}
+              title={isVoiceEnabled ? 'Disable voice' : 'Enable voice'}
+            >
+              {isVoiceEnabled ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
+            </Button>
+          )}
         </div>
       </CardHeader>
       <CardContent className="flex flex-col flex-1 p-4 pt-0">
@@ -161,13 +239,16 @@ export const AIAssistantChat = () => {
 
         <div className="mt-4 rounded-xl border border-border bg-background shadow-sm p-3">
           <input
+            ref={inputRef}
             type="text"
-            placeholder="Ask anything. Type @ for mentions and / for shortcuts."
+            placeholder={isListening ? "Listening..." : "Ask anything. Type @ for mentions and / for shortcuts."}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && !isLoading && handleSend()}
-            disabled={isLoading}
-            className="w-full bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none mb-3"
+            disabled={isLoading || isListening}
+            className={`w-full bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none mb-3 ${
+              isListening ? 'placeholder:text-primary placeholder:animate-pulse' : ''
+            }`}
           />
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-1">
@@ -190,8 +271,28 @@ export const AIAssistantChat = () => {
               <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground">
                 <Paperclip className="h-4 w-4" />
               </Button>
-              <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground">
-                <Mic className="h-4 w-4" />
+              {/* Mic button - voice input */}
+              <Button 
+                variant="ghost" 
+                size="icon" 
+                className={`h-8 w-8 ${
+                  isListening 
+                    ? 'text-primary bg-primary/10 animate-pulse' 
+                    : isSTTSupported 
+                      ? 'text-muted-foreground hover:text-foreground' 
+                      : 'text-muted-foreground/50 cursor-not-allowed'
+                }`}
+                onClick={handleMicClick}
+                disabled={!isSTTSupported || isListening || isLoading}
+                title={
+                  !isSTTSupported 
+                    ? 'Speech recognition not supported in this browser' 
+                    : isListening 
+                      ? 'Listening...' 
+                      : 'Click to speak'
+                }
+              >
+                {isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
               </Button>
               <Button
                 onClick={handleSend}

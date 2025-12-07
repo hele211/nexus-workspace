@@ -5,6 +5,9 @@ from typing import Union
 
 from backend.services.neo_blockchain import NeoBlockchainService
 from backend.services.mock_blockchain import MockNeoBlockchainService
+from backend.services.reagent_service import ReagentService, get_reagent_service
+from backend.services.protocol_service import ProtocolService, get_protocol_service
+from backend.services.experiment_service import ExperimentService, get_experiment_service
 
 # Toggle between real and mock blockchain
 # Set USE_MOCK_BLOCKCHAIN=true in .env for development without testnet GAS
@@ -40,4 +43,10 @@ __all__ = [
     "MockNeoBlockchainService", 
     "get_blockchain_service",
     "USE_MOCK_BLOCKCHAIN",
+    "ReagentService",
+    "get_reagent_service",
+    "ProtocolService",
+    "get_protocol_service",
+    "ExperimentService",
+    "get_experiment_service",
 ]

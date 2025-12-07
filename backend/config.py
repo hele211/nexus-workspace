@@ -91,3 +91,18 @@ NEO_X_PRIVATE_KEY: str = os.getenv("NEO_X_PRIVATE_KEY", "")
 
 # Smart contract address for lab data storage (set after deployment)
 NEO_X_LAB_DATA_CONTRACT: str = os.getenv("NEO_X_LAB_DATA_CONTRACT", "")
+
+# =============================================================================
+# Tavily Search API (for reagent discovery)
+# =============================================================================
+
+TAVILY_API_KEY: str = os.getenv("TAVILY_API_KEY", "")
+
+# =============================================================================
+# Debug Flags
+# =============================================================================
+
+# Enable verbose debug output in BlockchainAgent responses
+# Shows raw tx hashes, network info, and internal state for developers
+# Default: False (off in production)
+BLOCKCHAIN_AGENT_DEBUG: bool = os.getenv("BLOCKCHAIN_AGENT_DEBUG", "false").lower() == "true"
