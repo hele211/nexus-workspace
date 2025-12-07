@@ -35,6 +35,10 @@ from backend.tools.blockchain_tools import (
     VerifyExperimentIntegrityTool,
     GetBlockchainStatusTool,
 )
+from backend.tools.protocol_tools import (
+    ExtractProtocolFromUrlTool,
+    ExtractProtocolFromLiteratureLinkTool,
+)
 
 
 class ExperimentAgent(ToolCallAgent):
@@ -72,38 +76,55 @@ When user confirms they want to proceed:
 - Use `create_experiment` with title, question, description, and optional protocol_id
 - If they want to attach a protocol separately, use `attach_protocol_to_experiment`
 
-### 3. During Execution
+### 3. Protocol Extraction for Experiments ⭐ NEW
+When user provides a protocol URL or paper reference for their experiment:
+- **URL provided:** Use `extract_protocol_from_url` to get a structured summary
+- **DOI/PMID provided:** Use `extract_protocol_from_literature` to extract methods
+- After extraction, help them adapt the protocol for their specific experiment
+- Example: "Design an experiment based on this protocol: https://..."
+
+### 4. During Execution
 When user logs reagent usage explicitly ("I used 5 µL of reagent R1"):
 - Use `add_manual_reagent_usage` to log it
 - This updates both the experiment record AND reagent inventory
 
-### 4. Marking Completion
+### 5. Marking Completion
 When user says "mark experiment as done" or "completed":
 - Use `mark_experiment_status` with status="completed"
 - This AUTO-DEDUCES reagent usage from the linked protocol's steps
 - Inventory is automatically updated for each reagent reference
 
-### 5. Blockchain Provenance
+### 6. Blockchain Provenance
 When user asks to "make this tamper-proof" or "store on blockchain":
 - Use `store_experiment_on_chain` to create immutable record
 - Returns transaction hash and explorer URL
 
-### 6. Results Analysis
+### 7. Results Analysis
 When user asks "analyze the results" or provides outcome data:
 - Use `analyze_experiment_results` with the results summary
 - This searches literature for related findings and provides interpretation
 
-### 7. Retrieval
+### 8. Retrieval
 - Use `get_experiment` to show details of a specific experiment
 - Use `list_experiments` to show all experiments (with optional status filter)
+
+## When to Use Protocol Extraction
+
+| User Says | Action |
+|-----------|--------|
+| "Design experiment based on this URL: ..." | extract_protocol_from_url → adapt for experiment |
+| "Use the protocol from DOI 10.1038/..." | extract_protocol_from_literature → adapt for experiment |
+| "Plan experiment to test X" | plan_experiment_with_literature (searches, doesn't extract) |
 
 ## Response Style
 
 - Be helpful and guide users through the experiment lifecycle
 - Always show experiment_id after creating
+- When extracting protocols, highlight how to adapt them for the user's specific needs
 - Explain what auto-deduction means when marking complete
 - Suggest next steps (e.g., "Would you like to store this on the blockchain?")
 - When analyzing results, reference papers by title/DOI only (no copied text)
+- **Never copy exact protocol steps** - help users write their own adapted version
 """
 
     available_tools: ToolManager = ToolManager([
@@ -117,6 +138,9 @@ When user asks "analyze the results" or provides outcome data:
         AnalyzeExperimentResultsWithLiteratureTool(),
         GetExperimentTool(),
         ListExperimentsTool(),
+        # Protocol extraction tools (for URL/paper-based experiment design)
+        ExtractProtocolFromUrlTool(),
+        ExtractProtocolFromLiteratureLinkTool(),
         # Raw blockchain tools for direct access
         StoreExperimentOnChainTool(),
         VerifyExperimentIntegrityTool(),

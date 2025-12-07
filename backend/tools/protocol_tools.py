@@ -24,6 +24,264 @@ from backend.services.protocol_service import get_protocol_service
 
 
 # =============================================================================
+# Tavily Extraction Helper
+# =============================================================================
+
+async def _extract_protocol_from_url_helper(
+    url: str,
+    context: str = "",
+    extract_depth: str = "advanced"
+) -> dict:
+    """
+    Shared helper for extracting protocol content from a URL using Tavily.
+    
+    Uses Tavily's extract API with advanced depth for complex protocol pages.
+    Returns structured data with title, summary, key parameters, and source info.
+    
+    Args:
+        url: URL to extract content from
+        context: Optional context hint (e.g., "staining mouse brain slides")
+        extract_depth: "basic" or "advanced" (default: advanced for complex pages)
+        
+    Returns:
+        dict with keys: success, title, summary, key_parameters, steps_overview, source_url, error
+    """
+    if not config.TAVILY_API_KEY:
+        return {
+            "success": False,
+            "error": "Tavily API not configured. Set ELEVENLABS_API_KEY in backend .env",
+            "title": None,
+            "summary": None,
+            "key_parameters": [],
+            "steps_overview": None,
+            "source_url": url
+        }
+    
+    try:
+        from tavily import TavilyClient
+        import asyncio
+        
+        client = TavilyClient(api_key=config.TAVILY_API_KEY)
+        
+        # Run blocking Tavily call in executor
+        loop = asyncio.get_event_loop()
+        
+        def do_extract():
+            return client.extract(
+                urls=url,
+                extract_depth=extract_depth,
+                format="markdown",
+                timeout=30
+            )
+        
+        result = await loop.run_in_executor(None, do_extract)
+        
+        # Parse extraction results
+        results = result.get("results", [])
+        
+        if not results:
+            return {
+                "success": False,
+                "error": "No content could be extracted from the URL",
+                "title": None,
+                "summary": None,
+                "key_parameters": [],
+                "steps_overview": None,
+                "source_url": url
+            }
+        
+        # Get first result (single URL extraction)
+        extracted = results[0]
+        raw_content = extracted.get("raw_content", "")
+        
+        if not raw_content or len(raw_content) < 50:
+            return {
+                "success": False,
+                "error": "Extracted content too short or empty (page may be blocked or require login)",
+                "title": None,
+                "summary": None,
+                "key_parameters": [],
+                "steps_overview": None,
+                "source_url": url
+            }
+        
+        # Parse the content to extract protocol-relevant info
+        # We do NOT copy exact steps - only high-level summary
+        title = _extract_title_from_content(raw_content, url)
+        summary = _extract_protocol_summary(raw_content, context)
+        key_params = _extract_key_parameters(raw_content)
+        steps_overview = _extract_steps_overview(raw_content)
+        
+        return {
+            "success": True,
+            "error": None,
+            "title": title,
+            "summary": summary,
+            "key_parameters": key_params,
+            "steps_overview": steps_overview,
+            "source_url": url
+        }
+        
+    except ImportError:
+        return {
+            "success": False,
+            "error": "Tavily package not installed. Run: pip install tavily-python",
+            "title": None,
+            "summary": None,
+            "key_parameters": [],
+            "steps_overview": None,
+            "source_url": url
+        }
+    except Exception as e:
+        error_msg = str(e)
+        # Handle common errors gracefully
+        if "timeout" in error_msg.lower():
+            error_msg = "Request timed out - the page may be slow or unavailable"
+        elif "403" in error_msg or "forbidden" in error_msg.lower():
+            error_msg = "Access forbidden - the page may require authentication"
+        elif "404" in error_msg:
+            error_msg = "Page not found - check the URL"
+        
+        return {
+            "success": False,
+            "error": f"Extraction failed: {error_msg}",
+            "title": None,
+            "summary": None,
+            "key_parameters": [],
+            "steps_overview": None,
+            "source_url": url
+        }
+
+
+def _extract_title_from_content(content: str, url: str) -> str:
+    """Extract a title from the content or URL."""
+    import re
+    
+    # Try to find a title in markdown headers
+    title_match = re.search(r'^#\s+(.+?)$', content, re.MULTILINE)
+    if title_match:
+        return title_match.group(1).strip()[:100]
+    
+    # Try first line if it looks like a title
+    first_line = content.split('\n')[0].strip()
+    if first_line and len(first_line) < 150 and not first_line.startswith('http'):
+        return first_line[:100]
+    
+    # Fall back to URL-based title
+    from urllib.parse import urlparse
+    parsed = urlparse(url)
+    path_parts = [p for p in parsed.path.split('/') if p]
+    if path_parts:
+        return path_parts[-1].replace('-', ' ').replace('_', ' ').title()[:100]
+    
+    return "Protocol Page"
+
+
+def _extract_protocol_summary(content: str, context: str) -> str:
+    """
+    Extract a high-level summary of the protocol.
+    
+    IMPORTANT: Does NOT copy exact steps - only provides overview.
+    """
+    import re
+    
+    # Look for abstract/overview sections
+    summary_patterns = [
+        r'(?:abstract|overview|introduction|summary|description)[:\s]*(.{100,500})',
+        r'(?:this protocol|this method|this procedure)[:\s]*(.{100,400})',
+    ]
+    
+    for pattern in summary_patterns:
+        match = re.search(pattern, content, re.IGNORECASE | re.DOTALL)
+        if match:
+            summary = match.group(1).strip()
+            # Clean up and truncate
+            summary = re.sub(r'\s+', ' ', summary)
+            if len(summary) > 300:
+                summary = summary[:300] + "..."
+            return summary
+    
+    # Fall back to first substantial paragraph
+    paragraphs = [p.strip() for p in content.split('\n\n') if len(p.strip()) > 100]
+    if paragraphs:
+        summary = paragraphs[0][:300]
+        if len(paragraphs[0]) > 300:
+            summary += "..."
+        return summary
+    
+    return f"Protocol related to: {context}" if context else "Protocol details available at source URL"
+
+
+def _extract_key_parameters(content: str) -> list:
+    """
+    Extract key parameters like temperatures, times, concentrations.
+    
+    Returns list of parameter strings (e.g., ["37°C incubation", "10 min wash"]).
+    """
+    import re
+    
+    parameters = []
+    
+    # Temperature patterns
+    temp_matches = re.findall(r'(\d+)\s*°?\s*[Cc](?:elsius)?', content)
+    for temp in set(temp_matches[:3]):  # Limit to 3 unique temps
+        parameters.append(f"{temp}°C")
+    
+    # Time patterns
+    time_matches = re.findall(r'(\d+)\s*(min(?:ute)?s?|hours?|hrs?|seconds?|secs?|overnight)', content, re.IGNORECASE)
+    for time_val, unit in time_matches[:3]:
+        parameters.append(f"{time_val} {unit}")
+    
+    # Concentration patterns
+    conc_matches = re.findall(r'(\d+(?:\.\d+)?)\s*(mM|µM|nM|mg/ml|µg/ml|%)', content, re.IGNORECASE)
+    for val, unit in conc_matches[:3]:
+        parameters.append(f"{val} {unit}")
+    
+    # Sample type patterns
+    sample_matches = re.findall(r'(tissue|cells?|blood|serum|plasma|brain|liver|kidney|mouse|rat|human)', content, re.IGNORECASE)
+    for sample in set(sample_matches[:2]):
+        parameters.append(sample.lower())
+    
+    return list(set(parameters))[:8]  # Dedupe and limit
+
+
+def _extract_steps_overview(content: str) -> str:
+    """
+    Extract a HIGH-LEVEL overview of protocol steps.
+    
+    IMPORTANT: Does NOT copy exact step text - only counts and categorizes.
+    """
+    import re
+    
+    # Count numbered steps
+    step_matches = re.findall(r'(?:^|\n)\s*(?:step\s*)?(\d+)[.):]\s*', content, re.IGNORECASE)
+    num_steps = len(set(step_matches)) if step_matches else 0
+    
+    # Look for major phases/sections
+    phases = []
+    phase_patterns = [
+        r'(preparation|setup|fixation|staining|washing|incubation|imaging|analysis|harvest)',
+        r'(day\s*\d+|phase\s*\d+|part\s*\d+)',
+    ]
+    
+    for pattern in phase_patterns:
+        matches = re.findall(pattern, content, re.IGNORECASE)
+        phases.extend([m.lower() for m in matches])
+    
+    phases = list(set(phases))[:5]
+    
+    if num_steps > 0:
+        overview = f"~{num_steps} steps"
+        if phases:
+            overview += f" covering: {', '.join(phases)}"
+        return overview
+    elif phases:
+        return f"Protocol phases: {', '.join(phases)}"
+    else:
+        return "Multi-step protocol (see source for details)"
+
+
+# =============================================================================
 # Web Search Tools
 # =============================================================================
 
@@ -685,6 +943,331 @@ Returns compact, structured results optimized for agent consumption."""
             return f"ERROR: {str(e)}"
 
 
+# =============================================================================
+# URL Extraction Tools
+# =============================================================================
+
+class ExtractProtocolFromUrlTool(BaseTool):
+    """
+    Extract protocol content from a specific URL using Tavily.
+    
+    Uses Tavily's extract API with advanced depth to fetch and parse
+    protocol pages from repositories, vendor sites, or publications.
+    
+    Returns a structured summary (NOT verbatim copy) including:
+    - Page title
+    - High-level method overview
+    - Key parameters (temperatures, times, sample types)
+    - Steps overview (count and phases, not exact text)
+    
+    Respects copyright by only providing summaries, not copying exact steps.
+    """
+    
+    name: str = "extract_protocol_from_url"
+    description: str = """Extract protocol content from a specific URL.
+Use when user provides a direct link to a protocol page (e.g., protocols.io, vendor site, paper).
+Returns a structured summary with title, overview, and key parameters.
+Does NOT copy exact steps - only provides high-level summary to respect copyright."""
+    
+    parameters: dict = {
+        "type": "object",
+        "properties": {
+            "url": {
+                "type": "string",
+                "description": "URL of the protocol page to extract"
+            },
+            "context": {
+                "type": "string",
+                "description": "Optional context hint (e.g., 'staining mouse brain slides') to help focus extraction"
+            }
+        },
+        "required": ["url"]
+    }
+    
+    async def execute(self, url: str, context: str = "", **kwargs) -> str:
+        """
+        Extract protocol content from a URL.
+        
+        Args:
+            url: URL to extract from
+            context: Optional context hint
+            
+        Returns:
+            Formatted summary of the protocol
+        """
+        # Validate URL
+        if not url or not url.startswith(('http://', 'https://')):
+            return f"❌ **Invalid URL:** Please provide a valid HTTP/HTTPS URL."
+        
+        # Call extraction helper
+        result = await _extract_protocol_from_url_helper(url, context, extract_depth="advanced")
+        
+        if not result["success"]:
+            return f"""❌ **Extraction Failed**
+
+**URL:** {url}
+**Error:** {result['error']}
+
+💡 **Suggestions:**
+- Check if the URL is accessible in a browser
+- Try a different URL for the same protocol
+- Use `find_protocol_online` to search for alternatives"""
+        
+        # Format successful extraction
+        params_str = ", ".join(result["key_parameters"]) if result["key_parameters"] else "Not detected"
+        
+        return f"""📄 **Protocol Extracted**
+
+**Title:** {result['title']}
+**Source:** {result['source_url']}
+
+## Overview
+{result['summary']}
+
+## Key Parameters
+{params_str}
+
+## Structure
+{result['steps_overview']}
+
+---
+⚠️ **Note:** This is a high-level summary only. Refer to the source URL for complete details.
+
+💡 **Next Steps:**
+- To save this as a local protocol, say "create a protocol based on this"
+- I'll help you write your own version of the steps (not copied verbatim)"""
+
+
+class ExtractProtocolFromLiteratureLinkTool(BaseTool):
+    """
+    Extract protocol from a literature reference (paper ID, DOI, or URL).
+    
+    Workflow:
+    1. Resolve the paper to find the best available URL (publisher, PMC, etc.)
+    2. Use Tavily extract to fetch content from that URL
+    3. Summarize only the methods/protocol section at a high level
+    
+    Respects copyright by only providing summaries, not copying exact text.
+    """
+    
+    name: str = "extract_protocol_from_literature"
+    description: str = """Extract protocol/methods from a literature reference.
+Use when user provides a paper DOI, PMID, or URL and wants to extract the protocol.
+Resolves the paper to find accessible content, then extracts a high-level summary.
+Does NOT copy exact methods text - only provides overview to respect copyright."""
+    
+    parameters: dict = {
+        "type": "object",
+        "properties": {
+            "paper_id_or_url": {
+                "type": "string",
+                "description": "Paper identifier: DOI (10.xxxx/...), PMID (12345678), or direct URL"
+            },
+            "context": {
+                "type": "string",
+                "description": "What aspect of the protocol to focus on (e.g., 'immunostaining procedure')"
+            }
+        },
+        "required": ["paper_id_or_url"]
+    }
+    
+    async def execute(self, paper_id_or_url: str, context: str = "", **kwargs) -> str:
+        """
+        Extract protocol from a literature reference.
+        
+        Args:
+            paper_id_or_url: DOI, PMID, or URL
+            context: What to focus on
+            
+        Returns:
+            Formatted protocol summary
+        """
+        import re
+        
+        # Determine the type of identifier and resolve to URL
+        paper_id = paper_id_or_url.strip()
+        resolved_url = None
+        paper_info = None
+        
+        # Check if it's already a URL
+        if paper_id.startswith(('http://', 'https://')):
+            resolved_url = paper_id
+        
+        # Check if it's a DOI
+        elif paper_id.startswith('10.') or 'doi.org' in paper_id:
+            # Extract DOI
+            doi_match = re.search(r'(10\.\d{4,}/[^\s]+)', paper_id)
+            if doi_match:
+                doi = doi_match.group(1)
+                # Try to get paper info from Semantic Scholar
+                paper_info = await self._get_paper_info_by_doi(doi)
+                if paper_info:
+                    resolved_url = paper_info.get("url") or f"https://doi.org/{doi}"
+                else:
+                    resolved_url = f"https://doi.org/{doi}"
+        
+        # Check if it's a PMID
+        elif paper_id.isdigit() or paper_id.lower().startswith('pmid'):
+            pmid = re.sub(r'\D', '', paper_id)
+            if pmid:
+                # PubMed Central URL (more likely to have full text)
+                paper_info = await self._get_paper_info_by_pmid(pmid)
+                if paper_info and paper_info.get("pmc_url"):
+                    resolved_url = paper_info["pmc_url"]
+                else:
+                    resolved_url = f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/"
+        
+        else:
+            return f"""❌ **Could not parse paper identifier:** {paper_id}
+
+Please provide one of:
+- DOI (e.g., `10.1038/s41586-021-03819-2`)
+- PMID (e.g., `12345678`)
+- Direct URL to the paper"""
+        
+        if not resolved_url:
+            return f"""❌ **Could not resolve paper:** {paper_id}
+
+The paper could not be found or accessed. Try:
+- Providing a direct URL to the paper
+- Checking the DOI/PMID is correct
+- Using `find_protocol_in_literature` to search for the paper"""
+        
+        # Build context for extraction
+        extraction_context = context or "methods protocol procedure"
+        if paper_info and paper_info.get("title"):
+            extraction_context = f"{paper_info['title']} - {extraction_context}"
+        
+        # Extract content from the resolved URL
+        result = await _extract_protocol_from_url_helper(
+            resolved_url, 
+            extraction_context, 
+            extract_depth="advanced"
+        )
+        
+        if not result["success"]:
+            # Try alternative URLs if available
+            alt_urls = []
+            if paper_info:
+                if paper_info.get("pmc_url"):
+                    alt_urls.append(paper_info["pmc_url"])
+                if paper_info.get("doi"):
+                    alt_urls.append(f"https://doi.org/{paper_info['doi']}")
+            
+            # Try alternatives
+            for alt_url in alt_urls:
+                if alt_url != resolved_url:
+                    result = await _extract_protocol_from_url_helper(alt_url, extraction_context)
+                    if result["success"]:
+                        resolved_url = alt_url
+                        break
+        
+        if not result["success"]:
+            return f"""❌ **Could not extract protocol from paper**
+
+**Paper:** {paper_id}
+**Resolved URL:** {resolved_url}
+**Error:** {result['error']}
+
+💡 **This often happens because:**
+- The paper is behind a paywall
+- The page requires authentication
+- The methods section is in a supplementary file
+
+**Suggestions:**
+- Try accessing the paper directly and copy the URL of the methods section
+- Look for a preprint version on bioRxiv or medRxiv
+- Use `find_protocol_online` to search for related protocols"""
+        
+        # Format successful extraction
+        paper_title = paper_info.get("title", result["title"]) if paper_info else result["title"]
+        params_str = ", ".join(result["key_parameters"]) if result["key_parameters"] else "Not detected"
+        
+        return f"""📚 **Protocol Extracted from Literature**
+
+**Paper:** {paper_title}
+**Source:** {resolved_url}
+
+## Methods Overview
+{result['summary']}
+
+## Key Parameters
+{params_str}
+
+## Protocol Structure
+{result['steps_overview']}
+
+---
+⚠️ **Note:** This is a high-level summary of the methods section.
+Refer to the original paper for complete details and proper citation.
+
+💡 **Next Steps:**
+- To adapt this for your experiment, say "create a protocol based on this"
+- I'll help you write your own version (not copied verbatim)"""
+    
+    async def _get_paper_info_by_doi(self, doi: str) -> Optional[dict]:
+        """Get paper info from Semantic Scholar by DOI."""
+        try:
+            url = f"https://api.semanticscholar.org/graph/v1/paper/DOI:{doi}"
+            params = {"fields": "title,url,externalIds,isOpenAccess,openAccessPdf"}
+            
+            loop = asyncio.get_event_loop()
+            
+            def do_request():
+                response = requests.get(url, params=params, timeout=10)
+                if response.status_code == 200:
+                    return response.json()
+                return None
+            
+            data = await loop.run_in_executor(None, do_request)
+            
+            if data:
+                external_ids = data.get("externalIds", {}) or {}
+                return {
+                    "title": data.get("title"),
+                    "url": data.get("url"),
+                    "doi": external_ids.get("DOI"),
+                    "pmid": external_ids.get("PubMed"),
+                    "pmc_url": f"https://www.ncbi.nlm.nih.gov/pmc/articles/{external_ids['PubMedCentral']}/" 
+                              if external_ids.get("PubMedCentral") else None,
+                    "open_access_pdf": data.get("openAccessPdf", {}).get("url") if data.get("openAccessPdf") else None
+                }
+        except Exception:
+            pass
+        return None
+    
+    async def _get_paper_info_by_pmid(self, pmid: str) -> Optional[dict]:
+        """Get paper info from Semantic Scholar by PMID."""
+        try:
+            url = f"https://api.semanticscholar.org/graph/v1/paper/PMID:{pmid}"
+            params = {"fields": "title,url,externalIds,isOpenAccess,openAccessPdf"}
+            
+            loop = asyncio.get_event_loop()
+            
+            def do_request():
+                response = requests.get(url, params=params, timeout=10)
+                if response.status_code == 200:
+                    return response.json()
+                return None
+            
+            data = await loop.run_in_executor(None, do_request)
+            
+            if data:
+                external_ids = data.get("externalIds", {}) or {}
+                return {
+                    "title": data.get("title"),
+                    "url": data.get("url"),
+                    "doi": external_ids.get("DOI"),
+                    "pmid": external_ids.get("PubMed"),
+                    "pmc_url": f"https://www.ncbi.nlm.nih.gov/pmc/articles/{external_ids['PubMedCentral']}/" 
+                              if external_ids.get("PubMedCentral") else None,
+                    "open_access_pdf": data.get("openAccessPdf", {}).get("url") if data.get("openAccessPdf") else None
+                }
+        except Exception:
+            pass
+        return None
+
+
 # Export all tools
 __all__ = [
     "FindProtocolOnlineTool",
@@ -694,4 +1277,6 @@ __all__ = [
     "GetProtocolTool",
     "ListProtocolsTool",
     "FindProtocolForAgentTool",
+    "ExtractProtocolFromUrlTool",
+    "ExtractProtocolFromLiteratureLinkTool",
 ]

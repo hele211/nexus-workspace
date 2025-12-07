@@ -510,6 +510,311 @@ class TestProtocolWorkflow:
 
 
 # =============================================================================
+# Protocol Extraction Tool Tests
+# =============================================================================
+
+class TestExtractProtocolFromUrlTool:
+    """Test ExtractProtocolFromUrlTool."""
+    
+    @pytest.mark.asyncio
+    async def test_extract_from_url_success(self):
+        """Test successful extraction from a URL."""
+        from backend.tools.protocol_tools import ExtractProtocolFromUrlTool
+        
+        tool = ExtractProtocolFromUrlTool()
+        
+        # Mock Tavily extract response
+        mock_extract_result = {
+            "results": [{
+                "raw_content": """# Immunofluorescence Staining Protocol
+                
+## Overview
+This protocol describes immunofluorescence staining of mouse brain tissue sections
+for visualization of neuronal markers.
+
+## Materials
+- Primary antibody (1:500 dilution)
+- Secondary antibody (1:1000 dilution)
+- PBS buffer
+
+## Steps
+1. Fix tissue in 4% PFA for 15 minutes at room temperature
+2. Wash 3x with PBS for 5 minutes each
+3. Block with 5% BSA for 1 hour at 37°C
+4. Incubate with primary antibody overnight at 4°C
+5. Wash 3x with PBS
+6. Incubate with secondary antibody for 2 hours
+7. Mount and image
+"""
+            }]
+        }
+        
+        with patch('backend.tools.protocol_tools.config') as mock_config:
+            mock_config.TAVILY_API_KEY = "test-key"
+            
+            with patch.dict('sys.modules', {'tavily': MagicMock()}):
+                import sys
+                mock_tavily = sys.modules['tavily']
+                mock_client = MagicMock()
+                mock_client.extract.return_value = mock_extract_result
+                mock_tavily.TavilyClient.return_value = mock_client
+                
+                result = await tool.execute(
+                    url="https://protocols.io/view/immunofluorescence-staining",
+                    context="mouse brain staining"
+                )
+                
+                # Verify result contains expected sections
+                assert "Protocol Extracted" in result
+                assert "Overview" in result
+                assert "Key Parameters" in result
+                assert "Structure" in result
+                assert "protocols.io" in result
+    
+    @pytest.mark.asyncio
+    async def test_extract_from_url_invalid_url(self):
+        """Test extraction with invalid URL."""
+        from backend.tools.protocol_tools import ExtractProtocolFromUrlTool
+        
+        tool = ExtractProtocolFromUrlTool()
+        
+        result = await tool.execute(url="not-a-valid-url")
+        
+        assert "Invalid URL" in result
+    
+    @pytest.mark.asyncio
+    async def test_extract_from_url_no_api_key(self):
+        """Test extraction when Tavily API key is not configured."""
+        from backend.tools.protocol_tools import ExtractProtocolFromUrlTool
+        
+        tool = ExtractProtocolFromUrlTool()
+        
+        with patch('backend.tools.protocol_tools.config') as mock_config:
+            mock_config.TAVILY_API_KEY = ""
+            
+            result = await tool.execute(url="https://example.com/protocol")
+            
+            assert "Extraction Failed" in result
+            assert "not configured" in result.lower()
+    
+    @pytest.mark.asyncio
+    async def test_extract_from_url_extraction_failure(self):
+        """Test handling of extraction failures."""
+        from backend.tools.protocol_tools import ExtractProtocolFromUrlTool
+        
+        tool = ExtractProtocolFromUrlTool()
+        
+        with patch('backend.tools.protocol_tools.config') as mock_config:
+            mock_config.TAVILY_API_KEY = "test-key"
+            
+            with patch.dict('sys.modules', {'tavily': MagicMock()}):
+                import sys
+                mock_tavily = sys.modules['tavily']
+                mock_client = MagicMock()
+                mock_client.extract.return_value = {"results": []}  # Empty results
+                mock_tavily.TavilyClient.return_value = mock_client
+                
+                result = await tool.execute(url="https://example.com/blocked-page")
+                
+                assert "Extraction Failed" in result
+                assert "Suggestions" in result
+
+
+class TestExtractProtocolFromLiteratureLinkTool:
+    """Test ExtractProtocolFromLiteratureLinkTool."""
+    
+    @pytest.mark.asyncio
+    async def test_extract_from_doi(self):
+        """Test extraction from a DOI."""
+        from backend.tools.protocol_tools import ExtractProtocolFromLiteratureLinkTool
+        
+        tool = ExtractProtocolFromLiteratureLinkTool()
+        
+        # Mock Semantic Scholar response
+        mock_paper_info = {
+            "title": "A Novel Staining Protocol for Brain Tissue",
+            "url": "https://www.semanticscholar.org/paper/abc123",
+            "doi": "10.1038/s41586-021-03819-2",
+            "pmc_url": "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC8123456/"
+        }
+        
+        # Mock Tavily extract response
+        mock_extract_result = {
+            "results": [{
+                "raw_content": """# Methods
+                
+## Tissue Preparation
+Brain tissue was prepared using standard fixation protocols.
+Samples were incubated at 37°C for 30 minutes.
+
+## Staining Procedure
+1. Preparation phase
+2. Fixation phase  
+3. Staining phase
+4. Imaging phase
+"""
+            }]
+        }
+        
+        with patch('backend.tools.protocol_tools.config') as mock_config:
+            mock_config.TAVILY_API_KEY = "test-key"
+            
+            with patch.object(tool, '_get_paper_info_by_doi', return_value=mock_paper_info):
+                with patch.dict('sys.modules', {'tavily': MagicMock()}):
+                    import sys
+                    mock_tavily = sys.modules['tavily']
+                    mock_client = MagicMock()
+                    mock_client.extract.return_value = mock_extract_result
+                    mock_tavily.TavilyClient.return_value = mock_client
+                    
+                    result = await tool.execute(
+                        paper_id_or_url="10.1038/s41586-021-03819-2",
+                        context="staining procedure"
+                    )
+                    
+                    # Verify result contains expected sections
+                    assert "Protocol Extracted from Literature" in result
+                    assert "Methods Overview" in result
+                    assert "Key Parameters" in result
+    
+    @pytest.mark.asyncio
+    async def test_extract_from_pmid(self):
+        """Test extraction from a PMID."""
+        from backend.tools.protocol_tools import ExtractProtocolFromLiteratureLinkTool
+        
+        tool = ExtractProtocolFromLiteratureLinkTool()
+        
+        # Mock paper info
+        mock_paper_info = {
+            "title": "Test Paper",
+            "url": "https://pubmed.ncbi.nlm.nih.gov/12345678/",
+            "pmc_url": "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC123456/"
+        }
+        
+        mock_extract_result = {
+            "results": [{
+                "raw_content": "# Methods\nSample protocol content with 4°C incubation for 10 minutes."
+            }]
+        }
+        
+        with patch('backend.tools.protocol_tools.config') as mock_config:
+            mock_config.TAVILY_API_KEY = "test-key"
+            
+            with patch.object(tool, '_get_paper_info_by_pmid', return_value=mock_paper_info):
+                with patch.dict('sys.modules', {'tavily': MagicMock()}):
+                    import sys
+                    mock_tavily = sys.modules['tavily']
+                    mock_client = MagicMock()
+                    mock_client.extract.return_value = mock_extract_result
+                    mock_tavily.TavilyClient.return_value = mock_client
+                    
+                    result = await tool.execute(paper_id_or_url="12345678")
+                    
+                    assert "Protocol Extracted" in result or "Could not extract" in result
+    
+    @pytest.mark.asyncio
+    async def test_extract_from_direct_url(self):
+        """Test extraction when user provides a direct URL."""
+        from backend.tools.protocol_tools import ExtractProtocolFromLiteratureLinkTool
+        
+        tool = ExtractProtocolFromLiteratureLinkTool()
+        
+        mock_extract_result = {
+            "results": [{
+                "raw_content": "# Protocol\nStep 1: Prepare samples at 25°C for 15 minutes."
+            }]
+        }
+        
+        with patch('backend.tools.protocol_tools.config') as mock_config:
+            mock_config.TAVILY_API_KEY = "test-key"
+            
+            with patch.dict('sys.modules', {'tavily': MagicMock()}):
+                import sys
+                mock_tavily = sys.modules['tavily']
+                mock_client = MagicMock()
+                mock_client.extract.return_value = mock_extract_result
+                mock_tavily.TavilyClient.return_value = mock_client
+                
+                result = await tool.execute(
+                    paper_id_or_url="https://www.nature.com/articles/s41586-021-03819-2"
+                )
+                
+                # Should attempt extraction from the URL directly
+                assert "Protocol Extracted" in result or "Could not extract" in result
+    
+    @pytest.mark.asyncio
+    async def test_extract_invalid_identifier(self):
+        """Test extraction with invalid paper identifier."""
+        from backend.tools.protocol_tools import ExtractProtocolFromLiteratureLinkTool
+        
+        tool = ExtractProtocolFromLiteratureLinkTool()
+        
+        result = await tool.execute(paper_id_or_url="invalid-identifier")
+        
+        assert "Could not parse" in result
+        assert "DOI" in result
+        assert "PMID" in result
+
+
+class TestProtocolExtractionHelpers:
+    """Test the helper functions for protocol extraction."""
+    
+    def test_extract_key_parameters(self):
+        """Test extraction of key parameters from content."""
+        from backend.tools.protocol_tools import _extract_key_parameters
+        
+        content = """
+        Incubate at 37°C for 30 minutes.
+        Add 10 mM buffer solution.
+        Use mouse brain tissue samples.
+        Wash for 5 min with PBS.
+        """
+        
+        params = _extract_key_parameters(content)
+        
+        # Should extract temperatures, times, concentrations, sample types
+        assert any("37" in p for p in params)  # Temperature
+        assert any("30" in p or "5" in p for p in params)  # Time
+        assert any("mM" in p for p in params)  # Concentration
+        assert any("mouse" in p.lower() or "brain" in p.lower() for p in params)  # Sample type
+    
+    def test_extract_steps_overview(self):
+        """Test extraction of steps overview."""
+        from backend.tools.protocol_tools import _extract_steps_overview
+        
+        content = """
+        1. Preparation step
+        2. Fixation step
+        3. Staining step
+        4. Washing step
+        5. Imaging step
+        """
+        
+        overview = _extract_steps_overview(content)
+        
+        # Should detect ~5 steps
+        assert "5" in overview or "step" in overview.lower()
+    
+    def test_extract_protocol_summary(self):
+        """Test extraction of protocol summary."""
+        from backend.tools.protocol_tools import _extract_protocol_summary
+        
+        content = """
+        Abstract: This protocol describes a method for immunofluorescence staining
+        of mouse brain tissue sections for visualization of neuronal markers.
+        The procedure takes approximately 2 days to complete.
+        
+        Step 1: Fix tissue...
+        """
+        
+        summary = _extract_protocol_summary(content, "brain staining")
+        
+        # Should extract from abstract section
+        assert len(summary) > 50
+        assert len(summary) <= 350  # Should be truncated
+
+
+# =============================================================================
 # Run tests
 # =============================================================================
 
