@@ -14,7 +14,7 @@ API docs available at:
 import logging
 import re
 from datetime import datetime
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -30,6 +30,7 @@ from backend.agents.protocol_agent import ProtocolAgent
 from backend.agents.experiment_agent import ExperimentAgent
 from backend.schemas.chat import ChatRequest, ChatResponse
 from backend.services import get_blockchain_service, USE_MOCK_BLOCKCHAIN
+from backend.services.protocol_service import get_protocol_service
 
 
 # =============================================================================
@@ -74,39 +75,48 @@ def log_blockchain_action(
         error: Error message if failed
         extra: Additional context data
     """
-    service = get_blockchain_service()
-    info = service.get_network_info()
-    
-    log_data = {
-        "action": action,
-        "agent": "blockchain_agent",
-        "tool": tool_name,
-        "success": success,
-        "network": info.get("network", "unknown"),
-        "chain_id": info.get("chain_id", "unknown"),
-        "mock_mode": USE_MOCK_BLOCKCHAIN,
-    }
-    
-    if experiment_id:
-        log_data["experiment_id"] = experiment_id
-    if tx_hash:
-        log_data["tx_hash"] = tx_hash
-    if error:
-        log_data["error"] = error
-    if extra:
-        log_data.update(extra)
-    
-    # Format as structured log message
-    log_msg = " | ".join(f"{k}={v}" for k, v in log_data.items())
-    
-    if success:
-        blockchain_logger.info(log_msg)
-    else:
-        blockchain_logger.error(log_msg)
-    
-    # Debug mode: log full details
-    if config.BLOCKCHAIN_AGENT_DEBUG:
-        blockchain_logger.debug(f"Full log data: {log_data}")
+    try:
+        service = get_blockchain_service()
+        # Use simple default info if get_network_info fails
+        try:
+            info = service.get_network_info()
+        except Exception:
+            info = {}
+        
+        log_data = {
+            "action": action,
+            "agent": "blockchain_agent",
+            "tool": tool_name,
+            "success": success,
+            "network": info.get("network", "unknown"),
+            "chain_id": info.get("chain_id", "unknown"),
+            "mock_mode": USE_MOCK_BLOCKCHAIN,
+        }
+        
+        if experiment_id:
+            log_data["experiment_id"] = experiment_id
+        if tx_hash:
+            log_data["tx_hash"] = tx_hash
+        if error:
+            log_data["error"] = error
+        if extra:
+            log_data.update(extra)
+        
+        # Format as structured log message
+        log_msg = " | ".join(f"{k}={v}" for k, v in log_data.items())
+        
+        if success:
+            blockchain_logger.info(log_msg)
+        else:
+            blockchain_logger.error(log_msg)
+        
+        # Debug mode: log full details
+        if config.BLOCKCHAIN_AGENT_DEBUG:
+            blockchain_logger.debug(f"Full log data: {log_data}")
+            
+    except Exception as e:
+        # Fallback logging if structured logging fails
+        logger.error(f"Failed to log blockchain action: {e}")
 
 
 # =============================================================================
@@ -380,6 +390,177 @@ async def health():
     }
 
 
+# =============================================================================
+# Protocol REST Endpoints
+# =============================================================================
+# These endpoints expose ProtocolService to the frontend Protocol UI.
+# This ensures protocols created via AI chat appear in the Protocol page.
+# Pipeline: UI → /api/protocols → ProtocolService (same as ProtocolAgent tools)
+
+@app.get("/api/protocols", tags=["protocols"])
+async def list_protocols(tag: Optional[str] = None):
+    """
+    List all protocols, optionally filtered by tag.
+    
+    This is the same data source used by ProtocolAgent tools,
+    so protocols created via chat will appear here.
+    """
+    service = get_protocol_service()
+    protocols = service.list_protocols(tag_filter=tag)
+    return {
+        "protocols": protocols,
+        "count": len(protocols)
+    }
+
+
+class ProtocolCreateRequest(BaseModel):
+    """Request body for creating a protocol."""
+    name: str
+    description: Optional[str] = None
+    steps: Optional[List[Dict[str, Any]]] = None
+    tags: Optional[List[str]] = None
+
+
+@app.post("/api/protocols", tags=["protocols"])
+async def create_protocol(request: ProtocolCreateRequest):
+    """
+    Create a new protocol.
+    """
+    service = get_protocol_service()
+    result = service.create_protocol(
+        name=request.name,
+        description=request.description,
+        steps=request.steps,
+        tags=request.tags
+    )
+    return result
+
+
+@app.get("/api/protocols/{protocol_id}", tags=["protocols"])
+async def get_protocol(protocol_id: str):
+    """
+    Get a specific protocol by ID.
+    """
+    service = get_protocol_service()
+    protocol = service.get_protocol(protocol_id)
+    if not protocol:
+        raise HTTPException(status_code=404, detail=f"Protocol not found: {protocol_id}")
+    return protocol
+
+
+class ProtocolUpdateRequest(BaseModel):
+    """Request body for updating a protocol."""
+    name: Optional[str] = None
+    description: Optional[str] = None
+    steps: Optional[List[Dict[str, Any]]] = None
+    tags: Optional[List[str]] = None
+
+
+@app.put("/api/protocols/{protocol_id}", tags=["protocols"])
+async def update_protocol(protocol_id: str, request: ProtocolUpdateRequest):
+    """
+    Update a protocol by ID.
+    """
+    service = get_protocol_service()
+    protocol = service.get_protocol(protocol_id)
+    if not protocol:
+        raise HTTPException(status_code=404, detail=f"Protocol not found: {protocol_id}")
+    
+    result = service.update_protocol(
+        protocol_id=protocol_id,
+        name=request.name,
+        description=request.description,
+        steps=request.steps,
+        tags=request.tags
+    )
+    return result
+
+
+# =============================================================================
+# Experiment REST Endpoints
+# =============================================================================
+# These endpoints expose ExperimentService to the frontend Experiment UI.
+
+from backend.services.experiment_service import get_experiment_service
+
+
+@app.get("/api/experiments", tags=["experiments"])
+async def list_experiments(status: Optional[str] = None, tag: Optional[str] = None):
+    """
+    List all experiments, optionally filtered by status or tag.
+    """
+    service = get_experiment_service()
+    experiments = service.list_experiments(status_filter=status, tag_filter=tag)
+    return {
+        "experiments": experiments,
+        "count": len(experiments)
+    }
+
+
+class ExperimentCreateRequest(BaseModel):
+    """Request body for creating an experiment."""
+    title: str
+    scientific_question: str = ""
+    description: str = ""
+    protocol_id: Optional[str] = None
+    tags: Optional[List[str]] = None
+
+
+@app.post("/api/experiments", tags=["experiments"])
+async def create_experiment(request: ExperimentCreateRequest):
+    """
+    Create a new experiment.
+    """
+    service = get_experiment_service()
+    result = service.create_experiment(
+        title=request.title,
+        scientific_question=request.scientific_question,
+        description=request.description,
+        protocol_id=request.protocol_id,
+        tags=request.tags
+    )
+    return result
+
+
+@app.get("/api/experiments/{experiment_id}", tags=["experiments"])
+async def get_experiment(experiment_id: str):
+    """
+    Get a specific experiment by ID.
+    """
+    service = get_experiment_service()
+    experiment = service.get_experiment(experiment_id)
+    if not experiment:
+        raise HTTPException(status_code=404, detail=f"Experiment not found: {experiment_id}")
+    return experiment
+
+
+class ExperimentUpdateRequest(BaseModel):
+    """Request body for updating an experiment."""
+    title: Optional[str] = None
+    description: Optional[str] = None
+    scientific_question: Optional[str] = None
+    status: Optional[str] = None
+    protocol_id: Optional[str] = None
+    tags: Optional[List[str]] = None
+    notes: Optional[str] = None
+    results_summary: Optional[str] = None
+
+
+@app.put("/api/experiments/{experiment_id}", tags=["experiments"])
+async def update_experiment(experiment_id: str, request: ExperimentUpdateRequest):
+    """
+    Update an experiment by ID.
+    """
+    service = get_experiment_service()
+    experiment = service.get_experiment(experiment_id)
+    if not experiment:
+        raise HTTPException(status_code=404, detail=f"Experiment not found: {experiment_id}")
+    
+    updates = {k: v for k, v in request.model_dump().items() if v is not None}
+    result = service.update_experiment(experiment_id, updates)
+    return result
+
+
 @app.get(
     "/api/blockchain/status",
     response_model=BlockchainStatusResponse,
@@ -522,11 +703,27 @@ async def chat(request: ChatRequest):
                 user_id=request.page_context.user_id
             )
         
-        # Process message
-        response_text = await agent.process(
-            request.message,
-            request.page_context
-        )
+        # Convert history to list of dicts for agent
+        history_dicts = [
+            {"role": msg.role, "content": msg.content}
+            for msg in request.history
+        ] if request.history else []
+        
+        # Process message with conversation_id and history for memory continuity
+        if agent_name in ("protocol_agent", "experiment_agent"):
+            # These agents support conversation memory
+            response_text = await agent.process(
+                request.message,
+                request.page_context,
+                conversation_id=request.conversation_id,
+                history=history_dicts
+            )
+        else:
+            # Other agents use basic process
+            response_text = await agent.process(
+                request.message,
+                request.page_context
+            )
         
         # Log successful response
         logger.info(f"Chat response | agent={agent_name} | success=True | response_length={len(response_text)}")
@@ -541,17 +738,26 @@ async def chat(request: ChatRequest):
         )
     
     except Exception as e:
-        logger.error(f"Chat error | agent={agent_name} | error={str(e)}")
+        error_msg = str(e)
+        logger.error(f"Chat error | agent={agent_name} | error={error_msg}")
         if agent_name == "blockchain_agent":
             log_blockchain_action(
                 action="chat_error",
                 tool_name="agent_process",
                 success=False,
-                error=str(e)
+                error=error_msg
             )
+            
+        # Handle OpenAI Rate Limit
+        if "Rate limit exceeded" in error_msg or "429" in error_msg:
+            raise HTTPException(
+                status_code=429, 
+                detail="OpenAI API rate limit exceeded. Please try again later or check your API usage."
+            )
+            
         raise HTTPException(
             status_code=500,
-            detail=f"Agent error: {str(e)}"
+            detail=f"Agent error: {error_msg}"
         )
 
 
@@ -656,6 +862,15 @@ async def text_to_speech(request: TTSRequest):
     except httpx.TimeoutException:
         logger.error("TTS request timed out")
         raise HTTPException(status_code=504, detail="TTS service timeout")
-    except httpx.RequestError as e:
-        logger.error(f"TTS request error: {str(e)}")
-        raise HTTPException(status_code=502, detail="TTS service unavailable")
+    except Exception as e:
+        error_msg = str(e)
+        logger.error(f"TTS request error: {error_msg}", exc_info=True)
+        
+        # Handle OpenAI Rate Limit
+        if "Rate limit exceeded" in error_msg or "429" in error_msg:
+            raise HTTPException(
+                status_code=429, 
+                detail="OpenAI API rate limit exceeded. Please try again later or check your API usage."
+            )
+            
+        raise HTTPException(status_code=502, detail=f"TTS service unavailable: {error_msg}")

@@ -6,19 +6,25 @@ for the /api/chat endpoint.
 """
 
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
 from .common import PageContext
 
 
+class ChatMessage(BaseModel):
+    """A single message in conversation history."""
+    role: str = Field(..., description="Message role: 'user' or 'assistant'")
+    content: str = Field(..., description="Message content")
+
+
 class ChatRequest(BaseModel):
     """
     Request payload from frontend to /api/chat endpoint.
     
-    Contains the user's message and current page context
-    to help agents understand the user's working environment.
+    Contains the user's message, page context, conversation ID for memory,
+    and optional history for multi-turn continuity.
     """
     
     message: str = Field(
@@ -30,6 +36,14 @@ class ChatRequest(BaseModel):
         ...,
         description="Current page state from the frontend"
     )
+    conversation_id: str = Field(
+        default="default",
+        description="Unique conversation/session ID for memory continuity"
+    )
+    history: List[ChatMessage] = Field(
+        default_factory=list,
+        description="Previous messages in this conversation (last N for context)"
+    )
     stream: bool = Field(
         default=False,
         description="Enable streaming response (Phase 3 feature)"
@@ -39,16 +53,21 @@ class ChatRequest(BaseModel):
         "json_schema_extra": {
             "examples": [
                 {
-                    "message": "Find recent papers on CRISPR-Cas9 gene editing",
+                    "message": "Add some details to the protocol",
                     "page_context": {
-                        "route": "/literature",
+                        "route": "/protocols",
                         "workspace_id": "ws_abc123",
                         "user_id": "user_xyz789",
                         "experiment_ids": [],
-                        "protocol_ids": [],
+                        "protocol_ids": ["protocol_abc123"],
                         "filters": {},
                         "metadata": {}
                     },
+                    "conversation_id": "conv_12345",
+                    "history": [
+                        {"role": "user", "content": "Create a protocol for PCR"},
+                        {"role": "assistant", "content": "I've created protocol_abc123..."}
+                    ],
                     "stream": False
                 }
             ]

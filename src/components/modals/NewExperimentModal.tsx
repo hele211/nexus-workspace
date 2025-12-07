@@ -4,9 +4,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { supabase } from '@/integrations/supabase/client';
-import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
+
+// Backend API URL - same source as ExperimentAgent tools
+const API_URL = 'http://localhost:8000';
 
 interface NewExperimentModalProps {
   open: boolean;
@@ -17,36 +18,48 @@ export const NewExperimentModal = ({ open, onOpenChange }: NewExperimentModalPro
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const { user } = useAuth();
   const { toast } = useToast();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user) return;
 
     setIsLoading(true);
-    const { error } = await supabase.from('experiments').insert({
-      title,
-      description,
-      user_id: user.id,
-    });
+    
+    try {
+      const response = await fetch(`${API_URL}/api/experiments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title,
+          description,
+          scientific_question: "",
+          protocol_id: null,
+          tags: [],
+        }),
+      });
 
-    setIsLoading(false);
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status}`);
+      }
+      
+      const data = await response.json();
 
-    if (error) {
+      toast({
+        title: 'Success',
+        description: `Experiment created successfully: ${data.id}`,
+      });
+      setTitle('');
+      setDescription('');
+      onOpenChange(false);
+    } catch (error) {
+      console.error('Failed to create experiment:', error);
       toast({
         title: 'Error',
         description: 'Failed to create experiment',
         variant: 'destructive',
       });
-    } else {
-      toast({
-        title: 'Success',
-        description: 'Experiment created successfully',
-      });
-      setTitle('');
-      setDescription('');
-      onOpenChange(false);
+    } finally {
+      setIsLoading(false);
     }
   };
 

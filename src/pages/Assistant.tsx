@@ -1,21 +1,53 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { Send, Bot, Mic, MicOff, Volume2, VolumeX, Search, Globe, Copy, Paperclip, ArrowRight } from 'lucide-react';
+import { useLocation } from 'react-router-dom';
+import { Send, Bot, Mic, MicOff, Volume2, VolumeX, Search, Globe, Copy, Paperclip, ArrowRight, Square } from 'lucide-react';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Toggle } from '@/components/ui/toggle';
 import { useVoice } from '@/hooks/useVoice';
 import { useToast } from '@/hooks/use-toast';
+
+// Backend API URL - same as AIAssistantChat
+const API_URL = 'http://localhost:8000';
 
 interface Message {
   id: string;
   content: string;
   role: 'user' | 'assistant';
   timestamp: Date;
+  agentUsed?: string;
+}
+
+interface ChatRequest {
+  message: string;
+  page_context: {
+    route: string;
+    workspace_id: string;
+    user_id: string;
+    experiment_ids: string[];
+    protocol_ids: string[];
+    filters: Record<string, unknown>;
+    metadata: Record<string, unknown>;
+  };
+  conversation_id: string;
+  history: Array<{ role: string; content: string }>;
+  stream: boolean;
+}
+
+interface ChatResponse {
+  response: string;
+  agent_used: string;
+  intent: string | null;
+  metadata: Record<string, unknown>;
+  timestamp: string;
 }
 
 const Assistant = () => {
   const { toast } = useToast();
+  const location = useLocation();
   const [voiceMode, setVoiceMode] = useState(false);
   const [autoSpeak, setAutoSpeak] = useState(true);
   const [messages, setMessages] = useState<Message[]>([
@@ -28,35 +60,34 @@ const Assistant = () => {
   ]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [conversationId] = useState(() => `conv_${Date.now()}`);
   const pendingResponseRef = useRef<string | null>(null);
+  const lastAgentRef = useRef<string | undefined>(undefined);
 
-  const handleSpeakEnd = useCallback(() => {
-    // Re-enable listening after speaking in voice mode
-  }, []);
-
-  const { 
-    isListening, 
-    isSpeaking, 
-    isAvailable,
-    isSTTSupported,
-    isEnabled,
+  // Voice hook - same pattern as AIAssistantChat
+  const {
+    isAvailable: isVoiceAvailable,
+    isEnabled: isVoiceEnabled,
     toggleVoice,
-    speak, 
+    isSpeaking,
+    isListening,
+    speak,
     stopSpeaking,
-    listen
+    listen,
+    isSTTSupported,
   } = useVoice({
-    enabled: voiceMode,
-    onSpeakEnd: handleSpeakEnd,
     onError: (error) => {
+      console.error('[Assistant] Voice error:', error.message);
       toast({
         title: "Voice error",
         description: error.message,
         variant: "destructive",
       });
-    }
+    },
   });
 
-  const handleSendMessage = useCallback((text: string) => {
+  // Real API call to /api/chat - same as AIAssistantChat
+  const handleSendMessage = useCallback(async (text: string) => {
     if (!text.trim()) return;
 
     const userMessage: Message = {
@@ -70,30 +101,85 @@ const Assistant = () => {
     setInput('');
     setIsLoading(true);
 
-    // Placeholder response - will be replaced with SpoonOS integration
-    setTimeout(() => {
-      const responseText = "I'm currently in demo mode. Once connected to SpoonOS, I'll be able to help you with experiments, protocols, and research queries.";
+    try {
+      // Build history from messages for context
+      const history = messages
+        .filter(m => m.id !== '1') // Skip initial greeting
+        .map(m => ({ role: m.role, content: m.content }));
+
+      // Build request payload - same structure as AIAssistantChat
+      const chatRequest: ChatRequest = {
+        message: text,
+        page_context: {
+          route: location.pathname,
+          workspace_id: 'ws_default',
+          user_id: 'user_default',
+          experiment_ids: [],
+          protocol_ids: [],
+          filters: {},
+          metadata: {},
+        },
+        conversation_id: conversationId,
+        history: history,
+        stream: false,
+      };
+
+      // Call backend API - same endpoint as AIAssistantChat
+      const response = await fetch(`${API_URL}/api/chat`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(chatRequest),
+      });
+
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status}`);
+      }
+
+      const data: ChatResponse = await response.json();
+
       const assistantMessage: Message = {
         id: (Date.now() + 1).toString(),
-        content: responseText,
+        content: data.response,
+        role: 'assistant',
+        timestamp: new Date(data.timestamp),
+        agentUsed: data.agent_used,
+      };
+      setMessages((prev) => [...prev, assistantMessage]);
+      
+      // Store for TTS
+      lastAgentRef.current = data.agent_used;
+      pendingResponseRef.current = data.response;
+
+      // Speak response if voice is enabled
+      if (isVoiceEnabled && data.response) {
+        speak(data.response, data.agent_used);
+      }
+
+    } catch (error) {
+      console.error('Chat API error:', error);
+      const errorMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        content: `Sorry, I couldn't connect to the backend. Make sure the server is running at ${API_URL}. Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
         role: 'assistant',
         timestamp: new Date(),
       };
-      setMessages((prev) => [...prev, assistantMessage]);
+      setMessages((prev) => [...prev, errorMessage]);
+    } finally {
       setIsLoading(false);
-      pendingResponseRef.current = responseText;
-    }, 1000);
-  }, []);
+    }
+  }, [messages, location.pathname, conversationId, isVoiceEnabled, speak]);
 
   // Speak assistant responses when voice mode is on
   useEffect(() => {
-    if (voiceMode && autoSpeak && pendingResponseRef.current && !isLoading && isEnabled) {
+    if (voiceMode && autoSpeak && pendingResponseRef.current && !isLoading) {
       speak(pendingResponseRef.current);
       pendingResponseRef.current = null;
     }
-  }, [voiceMode, autoSpeak, isLoading, speak, isEnabled]);
+  }, [voiceMode, autoSpeak, isLoading, speak]);
 
-  const toggleVoiceMode = async () => {
+  const toggleVoiceMode = () => {
     if (!isSTTSupported) {
       toast({
         title: "Voice not supported",
@@ -108,18 +194,21 @@ const Assistant = () => {
       setVoiceMode(false);
     } else {
       setVoiceMode(true);
-      toggleVoice(); // Enable voice in the hook
+      toggleVoice();
     }
   };
 
-  const handleListen = async () => {
+  // Handle mic button click for voice input
+  const handleMicClick = async () => {
+    if (isListening) return;
+    
     try {
       const transcript = await listen();
       if (transcript) {
         handleSendMessage(transcript);
       }
     } catch (error) {
-      console.error('Listen error:', error);
+      // Error already logged in useVoice hook
     }
   };
 
@@ -202,8 +291,8 @@ const Assistant = () => {
                   size="lg"
                   variant={isListening ? "default" : "outline"}
                   className={`rounded-full h-16 w-16 ${isListening ? "animate-pulse bg-destructive hover:bg-destructive/90" : ""}`}
-                  onClick={handleListen}
-                  disabled={isSpeaking}
+                  onClick={handleMicClick}
+                  disabled={isSpeaking || isListening}
                 >
                   {isListening ? <MicOff className="h-6 w-6" /> : <Mic className="h-6 w-6" />}
                 </Button>
@@ -215,12 +304,14 @@ const Assistant = () => {
               <div className="mt-4 rounded-xl border border-border bg-background shadow-sm p-4">
                 <input
                   type="text"
-                  placeholder="Ask anything. Type @ for mentions and / for shortcuts."
+                  placeholder={isListening ? "Listening..." : "Ask anything. Type @ for mentions and / for shortcuts."}
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && !isLoading && handleSend()}
-                  disabled={isLoading}
-                  className="w-full bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none mb-4"
+                  disabled={isLoading || isListening}
+                  className={`w-full bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none mb-4 ${
+                    isListening ? 'placeholder:text-primary placeholder:animate-pulse' : ''
+                  }`}
                 />
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-1">
@@ -243,8 +334,28 @@ const Assistant = () => {
                     <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground">
                       <Paperclip className="h-4 w-4" />
                     </Button>
-                    <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground">
-                      <Mic className="h-4 w-4" />
+                    {/* Mic button - voice input */}
+                    <Button 
+                      variant="ghost" 
+                      size="icon" 
+                      className={`h-8 w-8 ${
+                        isListening 
+                          ? 'text-primary bg-primary/10 animate-pulse' 
+                          : isSTTSupported 
+                            ? 'text-muted-foreground hover:text-foreground' 
+                            : 'text-muted-foreground/50 cursor-not-allowed'
+                      }`}
+                      onClick={handleMicClick}
+                      disabled={!isSTTSupported || isListening || isLoading}
+                      title={
+                        !isSTTSupported 
+                          ? 'Speech recognition not supported' 
+                          : isListening 
+                            ? 'Listening...' 
+                            : 'Click to speak'
+                      }
+                    >
+                      {isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
                     </Button>
                     <Button
                       onClick={handleSend}

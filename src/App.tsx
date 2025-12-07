@@ -7,7 +7,9 @@ import { AuthProvider } from "@/hooks/useAuth";
 import Dashboard from "./pages/Dashboard";
 import Auth from "./pages/Auth";
 import Experiments from "./pages/Experiments";
+import ExperimentDetail from "./pages/ExperimentDetail";
 import Protocols from "./pages/Protocols";
+import ProtocolDetail from "./pages/ProtocolDetail";
 import Orders from "./pages/Orders";
 import Assistant from "./pages/Assistant";
 import TestChat from "./pages/TestChat";
@@ -26,7 +28,9 @@ const App = () => (
             <Route path="/" element={<Dashboard />} />
             <Route path="/auth" element={<Auth />} />
             <Route path="/experiments" element={<Experiments />} />
+            <Route path="/experiments/:experimentId" element={<ExperimentDetail />} />
             <Route path="/protocols" element={<Protocols />} />
+            <Route path="/protocols/:protocolId" element={<ProtocolDetail />} />
             <Route path="/orders" element={<Orders />} />
             <Route path="/assistant" element={<Assistant />} />
             <Route path="/test-chat" element={<TestChat />} />

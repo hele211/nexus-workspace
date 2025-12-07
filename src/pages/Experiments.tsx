@@ -1,13 +1,15 @@
-import { useState, useEffect } from 'react';
-import { Plus, FlaskConical } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Plus, FlaskConical, RefreshCw } from 'lucide-react';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { NewExperimentModal } from '@/components/modals/NewExperimentModal';
-import { supabase } from '@/integrations/supabase/client';
-import { useAuth } from '@/hooks/useAuth';
 import { formatDistanceToNow } from 'date-fns';
+
+// Backend API URL - same source as ExperimentAgent tools
+const API_URL = 'http://localhost:8000';
 
 interface Experiment {
   id: string;
@@ -18,22 +20,35 @@ interface Experiment {
 }
 
 const Experiments = () => {
+  const navigate = useNavigate();
   const [experiments, setExperiments] = useState<Experiment[]>([]);
   const [modalOpen, setModalOpen] = useState(false);
-  const { user } = useAuth();
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Fetch experiments from backend API (same source as ExperimentAgent tools)
+  const fetchExperiments = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+    
+    try {
+      const response = await fetch(`${API_URL}/api/experiments`);
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status}`);
+      }
+      const data = await response.json();
+      setExperiments(data.experiments || []);
+    } catch (err) {
+      console.error('Failed to fetch experiments:', err);
+      setError(err instanceof Error ? err.message : 'Failed to fetch experiments');
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    if (user) fetchExperiments();
-  }, [user]);
-
-  const fetchExperiments = async () => {
-    const { data, error } = await supabase
-      .from('experiments')
-      .select('*')
-      .order('created_at', { ascending: false });
-
-    if (!error && data) setExperiments(data);
-  };
+    fetchExperiments();
+  }, [fetchExperiments]);
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -52,10 +67,16 @@ const Experiments = () => {
             <h1 className="text-3xl font-bold tracking-tight">Experiments</h1>
             <p className="text-muted-foreground mt-1">Manage your lab experiments</p>
           </div>
-          <Button onClick={() => setModalOpen(true)}>
-            <Plus className="h-4 w-4 mr-2" />
-            New Experiment
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={fetchExperiments} disabled={isLoading}>
+              <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
+              Refresh
+            </Button>
+            <Button onClick={() => setModalOpen(true)}>
+              <Plus className="h-4 w-4 mr-2" />
+              New Experiment
+            </Button>
+          </div>
         </div>
 
         {experiments.length === 0 ? (
@@ -73,7 +94,11 @@ const Experiments = () => {
         ) : (
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
             {experiments.map((exp) => (
-              <Card key={exp.id} className="hover:shadow-md transition-shadow">
+              <Card 
+                key={exp.id} 
+                className="hover:shadow-md transition-shadow cursor-pointer"
+                onClick={() => navigate(`/experiments/${exp.id}`)}
+              >
                 <CardHeader>
                   <div className="flex items-center justify-between">
                     <CardTitle className="text-lg">{exp.title}</CardTitle>
